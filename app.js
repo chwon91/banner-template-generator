@@ -524,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const dataRows = state.parsedRows
         .filter(row => !row.parseError && row.position === pos)
-        .map(row => ['', row.dateFull, row.timeFormatted, '']);
+        .map(row => ['', `'${row.dateFull}`, `'${row.timeFormatted}`, '']);
 
       if (dataRows.length === 0) {
         showAlert('lbAlert', `LB_${pos} 위치의 방송이 없습니다.`, 'warning');
