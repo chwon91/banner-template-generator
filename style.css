@@ -178,8 +178,28 @@ body {
 }
 
 .file-name.loaded {
+  color: #374151;
+}
+
+.file-item {
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.file-item--ok {
   color: #059669;
   font-weight: 500;
+}
+
+.file-item--error {
+  color: #dc2626;
+}
+
+.file-total {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
 }
 
 /* Buttons */

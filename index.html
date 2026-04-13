@@ -49,13 +49,13 @@
             <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
               <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v1H7V5zm0 3h6v1H7V8zm0 3h4v1H7v-1z"/>
             </svg>
-            파일 선택
-            <input type="file" id="metabaseFile" accept=".xlsx,.xls" />
+            파일 선택 (다중)
+            <input type="file" id="metabaseFile" accept=".xlsx,.xls" multiple />
           </label>
-          <span id="metabaseFileName" class="file-name">파일을 선택해주세요</span>
+          <div id="metabaseFileName" class="file-name">파일을 선택해주세요 (여러 개 동시 선택 가능)</div>
         </div>
         <p class="hint-text">
-          필수 컬럼: <code>USER_ID</code>, <code>USER_NAME</code>
+          필수 컬럼: <code>USER_ID</code>, <code>USER_NAME</code> — 여러 파일을 선택하면 자동으로 합산됩니다.
         </p>
       </div>
 

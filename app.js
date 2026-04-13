@@ -415,50 +415,81 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ② Metabase xlsx 업로드 (컬럼 key를 첫 row에서 한 번만 탐색)
+  // ② Metabase xlsx 업로드 — 다중 파일 지원, 결과 합산
   document.getElementById('metabaseFile').addEventListener('change', function (e) {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = function (ev) {
-      try {
-        const data = new Uint8Array(ev.target.result);
-        const wb   = XLSX.read(data, { type: 'array' });
-        const ws   = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    const fileNameEl = document.getElementById('metabaseFileName');
+    fileNameEl.innerHTML = '<span style="color:#6b7280;">파일 읽는 중...</span>';
+    fileNameEl.classList.remove('loaded');
 
-        if (rows.length === 0) {
-          showAlert('lbAlert', 'Metabase 파일에 데이터가 없습니다.', 'error');
-          return;
+    state.userMap = {};
+    state.metabaseLoaded = false;
+
+    const results = [];   // { name, count, error }
+    let pending = files.length;
+
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = function (ev) {
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const wb   = XLSX.read(data, { type: 'array' });
+          const ws   = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+          if (rows.length === 0) {
+            results.push({ name: file.name, count: 0, error: '데이터 없음' });
+          } else {
+            const firstKeys = Object.keys(rows[0]);
+            const nameKey   = firstKeys.find(k => k.toUpperCase() === 'USER_NAME');
+            const idKey     = firstKeys.find(k => k.toUpperCase() === 'USER_ID');
+
+            if (!nameKey || !idKey) {
+              results.push({ name: file.name, count: 0, error: 'USER_NAME/USER_ID 컬럼 없음' });
+            } else {
+              let count = 0;
+              rows.forEach(row => {
+                const name = String(row[nameKey]).trim();
+                const id   = String(row[idKey]).trim();
+                if (name && id) { state.userMap[name] = id; count++; }
+              });
+              results.push({ name: file.name, count, error: null });
+            }
+          }
+        } catch (err) {
+          results.push({ name: file.name, count: 0, error: err.message });
         }
 
-        const firstKeys = Object.keys(rows[0]);
-        const nameKey   = firstKeys.find(k => k.toUpperCase() === 'USER_NAME');
-        const idKey     = firstKeys.find(k => k.toUpperCase() === 'USER_ID');
+        pending--;
+        if (pending > 0) return;
 
-        if (!nameKey || !idKey) {
-          showAlert('lbAlert', 'USER_NAME 또는 USER_ID 컬럼을 찾을 수 없습니다.', 'error');
-          return;
+        // 모든 파일 처리 완료
+        const totalCount = Object.keys(state.userMap).length;
+        const hasAnyError = results.some(r => r.error);
+
+        if (totalCount > 0) {
+          state.metabaseLoaded = true;
+          clearAlert('lbAlert');
         }
 
-        state.userMap = {};
-        rows.forEach(row => {
-          const name = String(row[nameKey]).trim();
-          const id   = String(row[idKey]).trim();
-          if (name && id) state.userMap[name] = id;
-        });
+        const listHtml = results.map(r =>
+          r.error
+            ? `<div class="file-item file-item--error">✗ ${escHtml(r.name)} — ${escHtml(r.error)}</div>`
+            : `<div class="file-item file-item--ok">✓ ${escHtml(r.name)} (${r.count}명)</div>`
+        ).join('');
 
-        state.metabaseLoaded = true;
-        const fileNameEl = document.getElementById('metabaseFileName');
-        fileNameEl.textContent = `${file.name} (${Object.keys(state.userMap).length}명 로드됨)`;
+        fileNameEl.innerHTML = listHtml
+          + `<div class="file-total">총 ${totalCount}명 로드됨</div>`;
         fileNameEl.classList.add('loaded');
-        clearAlert('lbAlert');
-      } catch (err) {
-        showAlert('lbAlert', `Metabase 파일 파싱 실패: ${err.message}`, 'error');
-      }
-    };
-    reader.readAsArrayBuffer(file);
+
+        if (hasAnyError && totalCount === 0) {
+          showAlert('lbAlert', '파일을 불러오지 못했습니다. 오류 내용을 확인해주세요.', 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
   });
 
   // ③ 파싱 & 미리보기
