@@ -141,6 +141,26 @@ function convertUrl(title, originalUrl) {
   return { scheme: '', error: `알 수 없는 말머리: ${prefix || '(없음)'}` };
 }
 
+// ── LB_6 중복 제거 (동일 셀러 30분 연속 → 첫 카드만 유지) ─
+function timeToMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function deduplicateLB6(rows) {
+  const result = [];
+  rows.forEach(row => {
+    if (result.length === 0) { result.push(row); return; }
+    const prev = result[result.length - 1];
+    const isSameSeller = row.gripperName === prev.gripperName;
+    const isSameDate   = row.dateFull === prev.dateFull;
+    const diff         = timeToMinutes(row.time) - timeToMinutes(prev.time);
+    if (isSameSeller && isSameDate && diff === 30) return; // 중복 제거
+    result.push(row);
+  });
+  return result;
+}
+
 // ── SheetJS 날짜/숫자 자동변환 방지 ─────────────────────
 /**
  * aoa_to_sheet 이후 모든 셀을 명시적으로 's' 타입 지정.
@@ -553,9 +573,9 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert('lbAlert', '먼저 [파싱 & 미리보기]를 실행해주세요.', 'warning');
         return;
       }
-      const dataRows = state.parsedRows
-        .filter(row => !row.parseError && row.position === pos)
-        .map(row => ['', `'${row.dateFull}`, `'${row.timeFormatted}`, '']);
+      let filteredRows = state.parsedRows.filter(row => !row.parseError && row.position === pos);
+      if (pos === '6') filteredRows = deduplicateLB6(filteredRows);
+      const dataRows = filteredRows.map(row => ['', `'${row.dateFull}`, `'${row.timeFormatted}`, '']);
 
       if (dataRows.length === 0) {
         showAlert('lbAlert', `LB_${pos} 위치의 방송이 없습니다.`, 'warning');
