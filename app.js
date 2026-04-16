@@ -141,50 +141,43 @@ function convertUrl(title, originalUrl) {
   return { scheme: '', error: `알 수 없는 말머리: ${prefix || '(없음)'}` };
 }
 
-// ── LB_6 중복 제거 (동일 셀러 30분 연속 → 첫 카드만 유지) ─
+// ── 연속 방송 중복 제거 (LB_2~LB_6 공통) ──────────────────
+// 동일 위치·셀러·날짜가 30분 간격으로 연속하면 첫 행만 유지.
+// 종료시간 = 마지막 슬롯 시작 + 29분 59초 (kept row에 runEndTime 저장)
 function timeToMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
 }
 
-function deduplicateLB6(rows) {
-  const result = [];
+function toHHMMSS(totalSecs) {
+  return `${pad2(Math.floor(totalSecs / 3600) % 24)}:${pad2(Math.floor((totalSecs % 3600) / 60))}:${pad2(totalSecs % 60)}`;
+}
+
+function applyConsecutiveDedup(rows) {
+  const runState = {}; // key → { keptRow, lastTime }
+  const result   = [];
+
   rows.forEach(row => {
-    if (result.length === 0) { result.push(row); return; }
-    const prev = result[result.length - 1];
-    const isSameSeller = row.gripperName === prev.gripperName;
-    const isSameDate   = row.dateFull === prev.dateFull;
-    const diff         = timeToMinutes(row.time) - timeToMinutes(prev.time);
-    if (isSameSeller && isSameDate && diff === 30) return; // 중복 제거
-    result.push(row);
-  });
-  return result;
-}
-
-// 전체 parsedRows에서 LB_6 중복 제거 (파싱 시점에 적용)
-// 쌍이 제거된 유지 행에 lb6HasPair = true 마킹
-function applyLB6Dedup(rows) {
-  const lastKeptTime = {}; // "gripperName|dateFull" → 마지막 유지된 time
-  const lastKeptRow  = {}; // "gripperName|dateFull" → 마지막 유지된 row 참조
-  return rows.filter(row => {
-    if (row.parseError || row.position !== '6') return true;
-    const key = `${row.gripperName}|${row.dateFull}`;
-    const prevTime = lastKeptTime[key];
-    if (prevTime !== undefined && timeToMinutes(row.time) - timeToMinutes(prevTime) === 30) {
-      if (lastKeptRow[key]) lastKeptRow[key].lb6HasPair = true; // 앞 행에 플래그
-      return false;
+    if (row.parseError || !['2','3','4','5','6'].includes(row.position)) {
+      result.push(row);
+      return;
     }
-    lastKeptTime[key] = row.time;
-    lastKeptRow[key]  = row;
-    return true;
-  });
-}
+    const key = `${row.position}|${row.gripperName}|${row.dateFull}`;
+    const run = runState[key];
 
-// LB_6 종료시간 계산: 시작시간 + 59분 59초
-function calcEndTime(hhmmss) {
-  const [h, m, s] = hhmmss.split(':').map(Number);
-  const total = h * 3600 + m * 60 + s + 59 * 60 + 59;
-  return `${pad2(Math.floor(total / 3600) % 24)}:${pad2(Math.floor((total % 3600) / 60))}:${pad2(total % 60)}`;
+    if (run && timeToMinutes(row.time) - timeToMinutes(run.lastTime) === 30) {
+      // 연속 슬롯: lastTime 갱신 + 종료시간 재계산 (마지막 슬롯 + 29:59)
+      run.lastTime = row.time;
+      run.keptRow.runEndTime = toHHMMSS(timeToMinutes(row.time) * 60 + 29 * 60 + 59);
+    } else {
+      // 새 run 시작
+      row.runEndTime = null;
+      runState[key] = { keptRow: row, lastTime: row.time };
+      result.push(row);
+    }
+  });
+
+  return result;
 }
 
 // ── SheetJS 날짜/숫자 자동변환 방지 ─────────────────────
@@ -556,7 +549,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    state.parsedRows = applyLB6Dedup(lines.map(line => parseLB(line, year)));
+    state.parsedRows = applyConsecutiveDedup(lines.map(line => parseLB(line, year)));
     state.mainTitles = {};
     renderLBTable();
   });
@@ -599,10 +592,9 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert('lbAlert', '먼저 [파싱 & 미리보기]를 실행해주세요.', 'warning');
         return;
       }
-      let filteredRows = state.parsedRows.filter(row => !row.parseError && row.position === pos);
-      if (pos === '6') filteredRows = deduplicateLB6(filteredRows);
+      const filteredRows = state.parsedRows.filter(row => !row.parseError && row.position === pos);
       const dataRows = filteredRows.map(row => {
-        const endTime = (pos === '6' && row.lb6HasPair) ? `'${calcEndTime(row.timeFormatted)}` : '';
+        const endTime = row.runEndTime ? `'${row.runEndTime}` : '';
         return ['', `'${row.dateFull}`, `'${row.timeFormatted}`, endTime];
       });
 
