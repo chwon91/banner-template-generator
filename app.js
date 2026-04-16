@@ -161,6 +161,21 @@ function deduplicateLB6(rows) {
   return result;
 }
 
+// 전체 parsedRows에서 LB_6 중복 제거 (파싱 시점에 적용)
+function applyLB6Dedup(rows) {
+  const lastKeptTime = {}; // "gripperName|dateFull" → 마지막 유지된 time
+  return rows.filter(row => {
+    if (row.parseError || row.position !== '6') return true;
+    const key = `${row.gripperName}|${row.dateFull}`;
+    const prevTime = lastKeptTime[key];
+    if (prevTime !== undefined && timeToMinutes(row.time) - timeToMinutes(prevTime) === 30) {
+      return false;
+    }
+    lastKeptTime[key] = row.time;
+    return true;
+  });
+}
+
 // ── SheetJS 날짜/숫자 자동변환 방지 ─────────────────────
 /**
  * aoa_to_sheet 이후 모든 셀을 명시적으로 's' 타입 지정.
@@ -530,7 +545,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    state.parsedRows = lines.map(line => parseLB(line, year));
+    state.parsedRows = applyLB6Dedup(lines.map(line => parseLB(line, year)));
     state.mainTitles = {};
     renderLBTable();
   });
