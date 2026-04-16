@@ -162,18 +162,29 @@ function deduplicateLB6(rows) {
 }
 
 // 전체 parsedRows에서 LB_6 중복 제거 (파싱 시점에 적용)
+// 쌍이 제거된 유지 행에 lb6HasPair = true 마킹
 function applyLB6Dedup(rows) {
   const lastKeptTime = {}; // "gripperName|dateFull" → 마지막 유지된 time
+  const lastKeptRow  = {}; // "gripperName|dateFull" → 마지막 유지된 row 참조
   return rows.filter(row => {
     if (row.parseError || row.position !== '6') return true;
     const key = `${row.gripperName}|${row.dateFull}`;
     const prevTime = lastKeptTime[key];
     if (prevTime !== undefined && timeToMinutes(row.time) - timeToMinutes(prevTime) === 30) {
+      if (lastKeptRow[key]) lastKeptRow[key].lb6HasPair = true; // 앞 행에 플래그
       return false;
     }
     lastKeptTime[key] = row.time;
+    lastKeptRow[key]  = row;
     return true;
   });
+}
+
+// LB_6 종료시간 계산: 시작시간 + 59분 59초
+function calcEndTime(hhmmss) {
+  const [h, m, s] = hhmmss.split(':').map(Number);
+  const total = h * 3600 + m * 60 + s + 59 * 60 + 59;
+  return `${pad2(Math.floor(total / 3600) % 24)}:${pad2(Math.floor((total % 3600) / 60))}:${pad2(total % 60)}`;
 }
 
 // ── SheetJS 날짜/숫자 자동변환 방지 ─────────────────────
@@ -590,7 +601,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       let filteredRows = state.parsedRows.filter(row => !row.parseError && row.position === pos);
       if (pos === '6') filteredRows = deduplicateLB6(filteredRows);
-      const dataRows = filteredRows.map(row => ['', `'${row.dateFull}`, `'${row.timeFormatted}`, '']);
+      const dataRows = filteredRows.map(row => {
+        const endTime = (pos === '6' && row.lb6HasPair) ? `'${calcEndTime(row.timeFormatted)}` : '';
+        return ['', `'${row.dateFull}`, `'${row.timeFormatted}`, endTime];
+      });
 
       if (dataRows.length === 0) {
         showAlert('lbAlert', `LB_${pos} 위치의 방송이 없습니다.`, 'warning');
