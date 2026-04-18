@@ -251,6 +251,7 @@ function initScheduleGrid() {
       });
     } else {
       // 시간열 없음: 포커스된 셀 위치부터 순서대로 채우기
+      showAlert('lbAlert', '⚠️ 시간열이 감지되지 않았습니다. 정확한 위치 매핑을 위해 시간열(첫 번째 열)을 포함해서 복사하세요.', 'warning');
       const target = e.target.closest('.grid-cell-input');
       const startRow = target ? +target.dataset.r : 0;
       const startCol = target ? +target.dataset.c : 0;
@@ -710,6 +711,18 @@ document.addEventListener('DOMContentLoaded', () => {
       showAlert('lbAlert', '그리드에 방송 데이터가 없습니다. 붙여넣기 또는 직접 입력 후 다시 시도하세요.', 'warning');
       return;
     }
+
+    lbLines.sort((a, b) => {
+      const parse = s => {
+        const m = s.match(/^LB_(\d+)_\S+\s+(\d+:\d+)/);
+        return m ? { pos: +m[1], time: m[2] } : { pos: 9, time: '99:99' };
+      };
+      const pa = parse(a), pb = parse(b);
+      if (pa.pos !== pb.pos) return pa.pos - pb.pos;
+      if (pa.time < pb.time) return -1;
+      if (pa.time > pb.time) return 1;
+      return 0;
+    });
 
     document.getElementById('lbText').value = lbLines.join('\n');
     showAlert('lbAlert', `${lbLines.length}건의 LB_ 텍스트를 생성했습니다. 확인 후 [파싱 & 미리보기]를 클릭하세요.`, 'info');
