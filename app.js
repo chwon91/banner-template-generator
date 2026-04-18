@@ -158,32 +158,39 @@ function renderCalendar() {
 
 // ── 편성표 파싱 ────────────────────────────────────────────
 function parseScheduleGrid(text, selectedDate) {
-  const lines = text.split('\n').map(l => l.trimEnd()).filter(l => l.trim() !== '');
+  // Excel 복사 시 \r\n 또는 \r 줄바꿈 정규화
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n').map(l => l.trimEnd()).filter(l => l.trim() !== '');
   if (lines.length === 0) return null;
 
   const VALID_POS = new Set(['2', '3', '4', '5', '6']);
   let posMap = {};   // { colIndex(number): posString }
-  let headerIdx = -1;
+  let dataStartIdx = 0;
 
-  for (let i = 0; i < lines.length; i++) {
+  // 헤더 행 탐색 (앞 10줄 이내)
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
     const cells = lines[i].split('\t');
     const found = [];
     cells.forEach((c, idx) => {
       if (VALID_POS.has(c.trim())) found.push({ idx, pos: c.trim() });
     });
     if (found.length >= 2) {
-      headerIdx = i;
       found.forEach(({ idx, pos }) => { posMap[idx] = pos; });
+      dataStartIdx = i + 1;
       break;
     }
   }
 
-  if (headerIdx === -1) return null;
+  // 헤더 없이 붙여넣은 경우: 열 1~5 = LB_2~6 고정 매핑
+  if (Object.keys(posMap).length === 0) {
+    posMap = { 1: '2', 2: '3', 3: '4', 4: '5', 5: '6' };
+    dataStartIdx = 0;
+  }
 
   const dateStr = `${selectedDate.month + 1}/${selectedDate.day}`;
   const lbLines = [];
 
-  for (let i = headerIdx + 1; i < lines.length; i++) {
+  for (let i = dataStartIdx; i < lines.length; i++) {
     const cells = lines[i].split('\t');
     const timeRaw = (cells[0] ?? '').trim();
     if (!/^\d{1,2}:\d{2}$/.test(timeRaw)) continue;
