@@ -234,27 +234,38 @@ function initScheduleGrid() {
     }
     if (rows.length === 0) return;
 
-    // 시간열 포함 여부: 첫 행 첫 셀이 HH:MM 형식인지 확인
-    const hasTimeCol = /^\d{1,2}:\d{2}$/.test(rows[0].split('\t')[0].trim());
+    // 시간 문자열 정규화: H:MM / HH:MM / H:MM:SS / HH:MM:SS → H:MM
+    function normalizeTime(raw) {
+      const m = raw.trim().match(/^(\d{1,2}:\d{2})(:\d{2})?$/);
+      return m ? m[1] : null;
+    }
+
+    // 시간열 포함 여부: 첫 행 첫 셀이 시간 형식인지 확인
+    const firstCellRaw = rows[0].split('\t')[0].trim();
+    const hasTimeCol = normalizeTime(firstCellRaw) !== null;
 
     if (hasTimeCol) {
       // 시간열 기준으로 해당 행 찾아서 채우기
       rows.forEach(line => {
         const cells = line.split('\t');
-        const timeRaw = cells[0].trim();
-        if (!/^\d{1,2}:\d{2}$/.test(timeRaw)) return;
-        const rowIdx = timeToIdx[timeRaw];
+        const timeNorm = normalizeTime(cells[0].trim());
+        if (!timeNorm) return;
+        const rowIdx = timeToIdx[timeNorm];
         if (rowIdx === undefined) return;
         cells.slice(1).forEach((val, c) => {
           if (c < 5) gridData[rowIdx][c] = val.trim();
         });
       });
     } else {
-      // 시간열 없음: 포커스된 셀 위치부터 순서대로 채우기
-      showAlert('lbAlert', '⚠️ 시간열이 감지되지 않았습니다. 정확한 위치 매핑을 위해 시간열(첫 번째 열)을 포함해서 복사하세요.', 'warning');
+      // 시간열 없음: 셀을 클릭한 위치부터 채우기 (클릭 없으면 거부)
       const target = e.target.closest('.grid-cell-input');
-      const startRow = target ? +target.dataset.r : 0;
-      const startCol = target ? +target.dataset.c : 0;
+      if (!target) {
+        showAlert('lbAlert', '⚠️ 시간열이 없고 시작 위치를 알 수 없습니다. 시간열(A열)을 포함해서 복사하거나, 시작할 시간 행의 셀을 클릭한 뒤 붙여넣으세요.', 'warning');
+        return;
+      }
+      showAlert('lbAlert', '⚠️ 시간열이 감지되지 않았습니다. 정확한 위치 매핑을 위해 시간열(A열)을 포함해서 복사하세요.', 'warning');
+      const startRow = +target.dataset.r;
+      const startCol = +target.dataset.c;
       rows.forEach((line, r) => {
         const targetRow = startRow + r;
         if (targetRow >= TIME_SLOTS.length) return;
