@@ -29,19 +29,40 @@
     <div class="card">
       <div class="card-title">입력 데이터</div>
 
+      <!-- 날짜 선택 (캘린더) -->
       <div class="form-group">
-        <label for="yearInput">연도</label>
-        <input type="number" id="yearInput" min="2020" max="2099" placeholder="2026" />
+        <label>날짜 선택 <span class="hint-badge">KST</span></label>
+        <div id="calContainer"></div>
       </div>
 
+      <!-- 편성표 붙여넣기 -->
       <div class="form-group">
-        <label for="lbText">LB_ 텍스트 (여러 줄 붙여넣기)</label>
+        <label for="scheduleText">편성표 붙여넣기 <span class="hint-badge-opt">선택</span></label>
+        <textarea
+          id="scheduleText"
+          placeholder="Excel 편성표(시간열 + 2~6열)를 복사해서 붙여넣으세요&#10;&#9;2&#9;3&#9;4&#9;5&#9;6&#10;16:00&#9;마녀옷장&#9;&#9;&#9;&#9;&#10;16:30&#9;마녀옷장&#9;사또벨라&#9;&#9;&#9;"
+        ></textarea>
+        <div class="convert-bar">
+          <button class="btn btn-secondary btn-sm" id="btnConvertSchedule">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
+            </svg>
+            LB_ 텍스트 변환
+          </button>
+          <span class="hint-text" style="margin:0;">변환하면 아래 LB_ 텍스트가 자동으로 채워집니다.</span>
+        </div>
+      </div>
+
+      <!-- LB_ 텍스트 -->
+      <div class="form-group">
+        <label for="lbText">LB_ 텍스트</label>
         <textarea
           id="lbText"
           placeholder="LB_2_4/10 11:00 완내스오빠&#10;LB_2_4/10 13:00 흥정대황군&#10;LB_3_4/10 11:00 천억언니"
         ></textarea>
       </div>
 
+      <!-- Metabase 파일 -->
       <div class="form-group">
         <label>Metabase 파일 (.xlsx)</label>
         <div class="file-upload-area">
@@ -80,12 +101,27 @@
       </div>
 
       <div class="download-bar">
+        <!-- 라이브 템플릿 다운로드 -->
         <button class="btn btn-success" id="btnDownloadLive">
           <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
           </svg>
           라이브 템플릿 다운로드
         </button>
+
+        <!-- 시작 카드 번호 입력 -->
+        <div class="card-num-wrap">
+          <label class="card-num-label" for="startCardNumInput">시작 카드 번호</label>
+          <input
+            type="number"
+            id="startCardNumInput"
+            class="card-num-input"
+            placeholder="예) 11048"
+            min="1"
+          />
+        </div>
+
+        <!-- 라이브배너등록 템플릿 -->
         <div class="lb-reg-group">
           <span class="lb-reg-label">라이브배너등록 템플릿</span>
           <div class="lb-reg-btns">
@@ -94,6 +130,12 @@
             <button class="btn btn-success btn-sm" data-lb-pos="4">LB_4</button>
             <button class="btn btn-success btn-sm" data-lb-pos="5">LB_5</button>
             <button class="btn btn-success btn-sm" data-lb-pos="6">LB_6</button>
+            <button class="btn btn-primary btn-sm" id="btnDownloadAllLB">
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+              전체 다운로드
+            </button>
           </div>
         </div>
       </div>
@@ -146,7 +188,6 @@
       </div>
     </div>
 
-    <!-- URL 변환 규칙 (JS 렌더링) -->
     <div id="url-rules-video"></div>
 
   </section>
@@ -196,7 +237,6 @@
       </div>
     </div>
 
-    <!-- URL 변환 규칙 (JS 렌더링) -->
     <div id="url-rules-image"></div>
 
   </section>
@@ -205,7 +245,6 @@
 
 <!-- SheetJS CDN -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<!-- App Logic -->
 <script src="app.js"></script>
 
 </body>

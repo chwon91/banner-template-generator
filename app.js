@@ -4,22 +4,13 @@
 
 'use strict';
 
-// ── 전역 상태 ──────────────────────────────────────────────
-const state = {
-  // 탭1: 라이브배너
-  userMap: {},          // { "그리퍼명": "user_id" }
-  metabaseLoaded: false,
-  parsedRows: [],       // parseLB 결과 배열
-  mainTitles: {},       // index -> 메인타이틀 입력값
+// ── 상수 ──────────────────────────────────────────────────
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+const DAY_NAMES_KO = ['일','월','화','수','목','금','토'];
 
-  // 탭2: 영상 배너
-  videoRows: [],        // [{ title, url }]
-
-  // 탭3: 이미지 배너
-  imageRows: [],        // [{ title, url }]
-};
-
-// ── URL 변환 규칙 데이터 ────────────────────────────────────
 const URL_RULES = [
   { prefix: 'EP_',  label: '이벤트 페이지', example: 'gripshow://openUrl?url=...&close=false&theme=black&share=true&login=false' },
   { prefix: 'LP_',  label: '라이브예고',    example: 'gripshow://live/{liveId}' },
@@ -27,20 +18,39 @@ const URL_RULES = [
   { prefix: '쇼츠_', label: '쇼츠',         example: 'gripshow://shorts/{ID}', note: 'URL 없이 제목 마지막 _ 세그먼트에서 ID 추출' },
 ];
 
+// ── 전역 상태 ──────────────────────────────────────────────
+const state = {
+  // 날짜 선택
+  selectedDate: null,   // { year, month(0-indexed), day }
+  calViewYear: 0,
+  calViewMonth: 0,
+
+  // 탭1: 라이브배너
+  userMap: {},
+  metabaseLoaded: false,
+  parsedRows: [],
+  mainTitles: {},
+
+  // 탭2: 영상 배너
+  videoRows: [],
+
+  // 탭3: 이미지 배너
+  imageRows: [],
+};
+
 // ── 유틸 ──────────────────────────────────────────────────
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
 function showAlert(containerId, message, type = 'warning') {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+  const el = document.getElementById(containerId);
+  if (el) el.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
 }
 
 function clearAlert(containerId) {
-  const container = document.getElementById(containerId);
-  if (container) container.innerHTML = '';
+  const el = document.getElementById(containerId);
+  if (el) el.innerHTML = '';
 }
 
 function escHtml(str) {
@@ -51,56 +61,190 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// ── 1. LB_ 파싱 ────────────────────────────────────────────
-/**
- * parseLB("LB_2_4/10 11:00 완내스오빠", 2026)
- * → { raw, position, dateShort, dateFull, time, timeFormatted, gripperName }
- */
+function getKSTToday() {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const kst = new Date(utcMs + 9 * 3600000);
+  return { year: kst.getFullYear(), month: kst.getMonth(), day: kst.getDate() };
+}
+
+// ── 캘린더 ────────────────────────────────────────────────
+function renderCalendar() {
+  const { calViewYear: year, calViewMonth: month } = state;
+  const kst = getKSTToday();
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  let html = `
+    <div class="cal-wrapper">
+      <div class="cal-header">
+        <button id="calPrev" class="cal-nav">&#8249;</button>
+        <span class="cal-month-year">${MONTH_NAMES[month]} ${year}</span>
+        <button id="calNext" class="cal-nav">&#8250;</button>
+      </div>
+      <div class="cal-grid">
+        <div class="cal-weekday cal-wd-sun">Su</div>
+        <div class="cal-weekday">Mo</div>
+        <div class="cal-weekday">Tu</div>
+        <div class="cal-weekday">We</div>
+        <div class="cal-weekday">Th</div>
+        <div class="cal-weekday">Fr</div>
+        <div class="cal-weekday cal-wd-sat">Sa</div>
+  `;
+
+  for (let i = 0; i < firstDow; i++) {
+    html += `<div class="cal-day cal-day--empty"></div>`;
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = (firstDow + d - 1) % 7;
+    const isToday = year === kst.year && month === kst.month && d === kst.day;
+    const isSel = state.selectedDate &&
+      year === state.selectedDate.year &&
+      month === state.selectedDate.month &&
+      d === state.selectedDate.day;
+
+    const classes = [
+      'cal-day',
+      dow === 0 ? 'cal-day--sun' : '',
+      dow === 6 ? 'cal-day--sat' : '',
+      isToday  ? 'cal-day--today' : '',
+      isSel    ? 'cal-day--selected' : '',
+    ].filter(Boolean).join(' ');
+
+    html += `<div class="${classes}" data-day="${d}">${d}</div>`;
+  }
+
+  html += `</div>`; // .cal-grid
+
+  if (state.selectedDate) {
+    const { year: sy, month: sm, day: sd } = state.selectedDate;
+    const dow = new Date(sy, sm, sd).getDay();
+    html += `
+      <div class="cal-selected-display">
+        선택: <strong>${sy}.${pad2(sm + 1)}.${pad2(sd)} (${DAY_NAMES_KO[dow]})</strong>
+      </div>
+    `;
+  }
+
+  html += `</div>`; // .cal-wrapper
+
+  const container = document.getElementById('calContainer');
+  container.innerHTML = html;
+
+  container.querySelector('#calPrev').addEventListener('click', () => {
+    state.calViewMonth--;
+    if (state.calViewMonth < 0) { state.calViewMonth = 11; state.calViewYear--; }
+    renderCalendar();
+  });
+
+  container.querySelector('#calNext').addEventListener('click', () => {
+    state.calViewMonth++;
+    if (state.calViewMonth > 11) { state.calViewMonth = 0; state.calViewYear++; }
+    renderCalendar();
+  });
+
+  container.querySelectorAll('.cal-day[data-day]').forEach(cell => {
+    cell.addEventListener('click', () => {
+      state.selectedDate = {
+        year: state.calViewYear,
+        month: state.calViewMonth,
+        day: parseInt(cell.dataset.day, 10),
+      };
+      renderCalendar();
+    });
+  });
+}
+
+// ── 편성표 파싱 ────────────────────────────────────────────
+function parseScheduleGrid(text, selectedDate) {
+  const lines = text.split('\n').map(l => l.trimEnd()).filter(l => l.trim() !== '');
+  if (lines.length === 0) return null;
+
+  const VALID_POS = new Set(['2', '3', '4', '5', '6']);
+  let posMap = {};   // { colIndex(number): posString }
+  let headerIdx = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const cells = lines[i].split('\t');
+    const found = [];
+    cells.forEach((c, idx) => {
+      if (VALID_POS.has(c.trim())) found.push({ idx, pos: c.trim() });
+    });
+    if (found.length >= 2) {
+      headerIdx = i;
+      found.forEach(({ idx, pos }) => { posMap[idx] = pos; });
+      break;
+    }
+  }
+
+  if (headerIdx === -1) return null;
+
+  const dateStr = `${selectedDate.month + 1}/${selectedDate.day}`;
+  const lbLines = [];
+
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cells = lines[i].split('\t');
+    const timeRaw = (cells[0] ?? '').trim();
+    if (!/^\d{1,2}:\d{2}$/.test(timeRaw)) continue;
+
+    const [hStr, mStr] = timeRaw.split(':');
+    const time = `${pad2(parseInt(hStr, 10))}:${pad2(parseInt(mStr, 10))}`;
+
+    Object.entries(posMap).forEach(([colIdxStr, pos]) => {
+      const gripper = (cells[parseInt(colIdxStr)] ?? '').trim();
+      if (gripper) {
+        lbLines.push(`LB_${pos}_${dateStr} ${time} ${gripper}`);
+      }
+    });
+  }
+
+  // 시간 오름차순, 동일 시간 내 위치 오름차순 정렬
+  lbLines.sort((a, b) => {
+    const parse = s => {
+      const m = s.match(/^LB_(\d+)_\S+\s+(\d+:\d+)/);
+      return m ? { pos: +m[1], time: m[2] } : { pos: 9, time: '99:99' };
+    };
+    const pa = parse(a), pb = parse(b);
+    if (pa.time < pb.time) return -1;
+    if (pa.time > pb.time) return 1;
+    return pa.pos - pb.pos;
+  });
+
+  return lbLines;
+}
+
+// ── LB_ 파싱 ──────────────────────────────────────────────
 function parseLB(line, year) {
   line = line.trim();
   if (!line) return null;
 
-  // LB_[위치]_[월/일] [시간] [그리퍼명]
-  // e.g. LB_2_4/10 11:00 완내스오빠
   const regex = /^LB_(\d+)_((\d{1,2})\/(\d{1,2}))\s+(\d{1,2}:\d{2})\s+(.+)$/;
   const m = line.match(regex);
 
-  if (!m) {
-    return { raw: line, parseError: true };
-  }
+  if (!m) return { raw: line, parseError: true };
 
   const position    = m[1];
-  const dateShort   = m[2];            // "4/10"
+  const dateShort   = m[2];
   const month       = pad2(parseInt(m[3], 10));
   const day         = pad2(parseInt(m[4], 10));
   const dateFull    = `${year}.${month}.${day}`;
-  // 시간 제로패딩: "8:00" → "08:00", "11:00" → "11:00"
-  const timeParts     = m[5].split(':');
-  const hh            = pad2(parseInt(timeParts[0], 10));
-  const mm            = pad2(parseInt(timeParts[1], 10));
+  const timeParts   = m[5].split(':');
+  const hh          = pad2(parseInt(timeParts[0], 10));
+  const mm          = pad2(parseInt(timeParts[1], 10));
   const time          = `${hh}:${mm}`;
   const timeFormatted = `${hh}:${mm}:00`;
   const gripperName = m[6].trim();
 
-  return {
-    raw: line,
-    position,
-    dateShort,
-    dateFull,
-    time,
-    timeFormatted,
-    gripperName,
-    parseError: false,
-  };
+  return { raw: line, position, dateShort, dateFull, time, timeFormatted, gripperName, parseError: false };
 }
 
-// ── 2. USER_ID 조회 ────────────────────────────────────────
+// ── USER_ID 조회 ───────────────────────────────────────────
 function lookupUserId(gripperName, userMap) {
-  if (!gripperName) return null;
   return userMap[gripperName] ?? null;
 }
 
-// ── 3. URL 변환 ────────────────────────────────────────────
+// ── URL 변환 ───────────────────────────────────────────────
 function convertUrl(title, originalUrl) {
   if (!title || !originalUrl) return { scheme: '', error: '제목 또는 URL 없음' };
 
@@ -108,28 +252,20 @@ function convertUrl(title, originalUrl) {
   const url = originalUrl.trim();
 
   if (prefix === 'EP') {
-    // 이벤트 페이지
     const encoded = encodeURIComponent(url);
     return { scheme: `gripshow://openUrl?url=${encoded}&close=false&theme=black&share=true&login=false`, error: null };
   }
-
   if (prefix === 'LP') {
-    // 라이브예고: https://www.grip.show/live/{id}
     const liveMatch = url.match(/grip\.show\/live\/([^/?#]+)/);
     if (!liveMatch) return { scheme: '', error: 'LP URL에서 live ID를 추출하지 못했습니다.' };
     return { scheme: `gripshow://live/${liveMatch[1]}`, error: null };
   }
-
   if (prefix === 'ST') {
-    // 소식/스토리: https://link.grip.show/story/{id}
     const storyMatch = url.match(/grip\.show\/story\/([^/?#]+)/);
     if (!storyMatch) return { scheme: '', error: 'ST URL에서 story ID를 추출하지 못했습니다.' };
     return { scheme: `gripshow://story/${storyMatch[1]}`, error: null };
   }
-
   if (prefix === '쇼츠') {
-    // 쇼츠: URL에서 추출 시도, 없으면 제목 마지막 _ 세그먼트 사용
-    // 예) 쇼츠_또진이네_x3n21d03 → gripshow://shorts/x3n21d03
     const urlMatch = url && url.match(/grip\.show\/shorts\/([^/?#]+)/);
     if (urlMatch) return { scheme: `gripshow://shorts/${urlMatch[1]}`, error: null };
     const parts = title.split('_');
@@ -141,9 +277,7 @@ function convertUrl(title, originalUrl) {
   return { scheme: '', error: `알 수 없는 말머리: ${prefix || '(없음)'}` };
 }
 
-// ── 연속 방송 중복 제거 (LB_2~LB_6 공통) ──────────────────
-// 동일 위치·셀러·날짜가 30분 간격으로 연속하면 첫 행만 유지.
-// 종료시간 = 마지막 슬롯 시작 + 29분 59초 (kept row에 runEndTime 저장)
+// ── 연속 방송 중복 제거 ────────────────────────────────────
 function timeToMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
@@ -154,8 +288,8 @@ function toHHMMSS(totalSecs) {
 }
 
 function applyConsecutiveDedup(rows) {
-  const runState = {}; // key → { keptRow, lastTime }
-  const result   = [];
+  const runState = {};
+  const result = [];
 
   rows.forEach(row => {
     if (row.parseError || !['2','3','4','5','6'].includes(row.position)) {
@@ -166,11 +300,9 @@ function applyConsecutiveDedup(rows) {
     const run = runState[key];
 
     if (run && timeToMinutes(row.time) - timeToMinutes(run.lastTime) === 30) {
-      // 연속 슬롯: lastTime 갱신 + 종료시간 재계산 (마지막 슬롯 + 29:59)
       run.lastTime = row.time;
       run.keptRow.runEndTime = toHHMMSS(timeToMinutes(row.time) * 60 + 29 * 60 + 59);
     } else {
-      // 새 run 시작
       row.runEndTime = null;
       runState[key] = { keptRow: row, lastTime: row.time };
       result.push(row);
@@ -180,11 +312,7 @@ function applyConsecutiveDedup(rows) {
   return result;
 }
 
-// ── SheetJS 날짜/숫자 자동변환 방지 ─────────────────────
-/**
- * aoa_to_sheet 이후 모든 셀을 명시적으로 's' 타입 지정.
- * 날짜(yyyy.mm.dd), 시간(hh:mm:ss) 등이 숫자로 변환되는 것을 방지.
- */
+// ── SheetJS 날짜/숫자 자동변환 방지 ───────────────────────
 function forceStringCells(ws, aoaData) {
   aoaData.forEach((row, r) => {
     row.forEach((val, c) => {
@@ -215,11 +343,7 @@ function renderUrlRulesCard(containerId) {
       <div class="card-title">URL 변환 규칙 안내</div>
       <table class="info-table">
         <thead>
-          <tr>
-            <th>말머리</th>
-            <th>의미</th>
-            <th>변환 예시</th>
-          </tr>
+          <tr><th>말머리</th><th>의미</th><th>변환 예시</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -251,6 +375,7 @@ function renderLBTable() {
     <table>
       <thead>
         <tr>
+          <th>#</th>
           <th>제목 (원본)</th>
           <th>사용자 코드</th>
           <th>메인타이틀</th>
@@ -265,6 +390,7 @@ function renderLBTable() {
     if (row.parseError) {
       html += `
         <tr class="row-error">
+          <td>—</td>
           <td colspan="5">
             <span style="color:#dc2626;font-weight:500;">파싱 실패:</span>
             <code style="font-size:12px;margin-left:6px;">${escHtml(row.raw)}</code>
@@ -280,15 +406,19 @@ function renderLBTable() {
       : `<span class="user-id-missing">❌ 매핑 없음</span>`;
     const rowClass = userId ? '' : 'row-error';
 
-    // 메인타이틀: position === "2" 일 때만 활성화
     const isPos2 = row.position === '2';
     const savedTitle = state.mainTitles[i] ?? '';
     const inputHtml = isPos2
       ? `<input class="inline-input" type="text" data-index="${i}" value="${escHtml(savedTitle)}" placeholder="메인타이틀 입력">`
       : `<input class="inline-input" type="text" disabled placeholder="">`;
 
+    const cardNum = row.templateIndex !== undefined && row.templateIndex !== null
+      ? `<span class="template-idx">${row.templateIndex + 1}</span>`
+      : '';
+
     html += `
       <tr class="${rowClass}">
+        <td style="color:#9ca3af;font-size:12px;">${cardNum}</td>
         <td><code style="font-size:12px;">${escHtml(row.raw)}</code></td>
         <td>${userCell}</td>
         <td>${inputHtml}</td>
@@ -301,7 +431,6 @@ function renderLBTable() {
   html += '</tbody></table></div>';
   container.innerHTML = html;
 
-  // 메인타이틀 입력값 실시간 저장
   container.querySelectorAll('.inline-input[data-index]').forEach(input => {
     input.addEventListener('input', () => {
       state.mainTitles[parseInt(input.dataset.index, 10)] = input.value;
@@ -309,7 +438,53 @@ function renderLBTable() {
   });
 }
 
-// ── 탭2/3 공통: 배너 행 관리 ──────────────────────────────
+// ── 시작 카드 번호 읽기 ────────────────────────────────────
+function getStartCardNum() {
+  const input = document.getElementById('startCardNumInput');
+  if (!input || !input.value.trim()) return null;
+  const val = parseInt(input.value.trim(), 10);
+  return isNaN(val) ? null : val;
+}
+
+// ── LB 등록 템플릿 다운로드 ───────────────────────────────
+const LB_HEADER = [
+  '콘텐츠 카드 번호',
+  '날짜 (yyyy.mm.dd)',
+  '방송 시작 시간 (hh:mm:ss)',
+  '방송 종료 시간 (hh:mm:ss)',
+];
+
+function downloadLBTemplate(pos) {
+  if (state.parsedRows.length === 0) {
+    showAlert('lbAlert', '먼저 [파싱 & 미리보기]를 실행해주세요.', 'warning');
+    return;
+  }
+
+  const filteredRows = state.parsedRows.filter(r => !r.parseError && r.position === pos);
+  if (filteredRows.length === 0) {
+    showAlert('lbAlert', `LB_${pos} 위치의 방송이 없습니다.`, 'warning');
+    return;
+  }
+
+  const startNum = getStartCardNum();
+  const dataRows = filteredRows.map(row => {
+    const cardNum = startNum !== null && row.templateIndex !== null
+      ? String(startNum + row.templateIndex)
+      : '';
+    const endTime = row.runEndTime ? `'${row.runEndTime}` : '';
+    return [cardNum, `'${row.dateFull}`, `'${row.timeFormatted}`, endTime];
+  });
+
+  const wb = XLSX.utils.book_new();
+  const wsData = [LB_HEADER, ...dataRows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  forceStringCells(ws, wsData);
+  XLSX.utils.book_append_sheet(wb, ws, `LB_${pos}`);
+  XLSX.writeFile(wb, `라이브배너등록 템플릿_LB${pos}.xlsx`);
+  clearAlert('lbAlert');
+}
+
+// ── 배너 탭(영상/이미지) 공통 초기화 ──────────────────────
 function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
   const addBtn      = document.getElementById(`${tabId}-addRow`);
   const tbody       = document.getElementById(`${tabId}-tbody`);
@@ -321,13 +496,7 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
     tbody.innerHTML = '';
 
     if (rows.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="4" class="empty-state">
-            [행 추가] 버튼을 눌러 데이터를 입력하세요.
-          </td>
-        </tr>
-      `;
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-state">[행 추가] 버튼을 눌러 데이터를 입력하세요.</td></tr>`;
       return;
     }
 
@@ -340,18 +509,12 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>
-          <input class="inline-input" type="text"
-            data-field="title" data-index="${i}"
-            value="${escHtml(row.title)}"
-            placeholder="예) EP_사전내일_완내스오빠_0410"
-            style="min-width:200px;">
+          <input class="inline-input" type="text" data-field="title" data-index="${i}"
+            value="${escHtml(row.title)}" placeholder="예) EP_사전내일_완내스오빠_0410" style="min-width:200px;">
         </td>
         <td>
-          <input class="inline-input" type="text"
-            data-field="url" data-index="${i}"
-            value="${escHtml(row.url)}"
-            placeholder="https://www.grip.show/..."
-            style="min-width:240px;">
+          <input class="inline-input" type="text" data-field="url" data-index="${i}"
+            value="${escHtml(row.url)}" placeholder="https://www.grip.show/..." style="min-width:240px;">
         </td>
         <td>${schemeDisplay}</td>
         <td style="white-space:nowrap;">
@@ -362,17 +525,11 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
       tbody.appendChild(tr);
     });
 
-    // 이벤트 바인딩
     tbody.querySelectorAll('.inline-input').forEach(input => {
       input.addEventListener('input', () => {
-        const idx   = parseInt(input.dataset.index, 10);
-        const field = input.dataset.field;
-        state[stateKey][idx][field] = input.value;
-        // 스킴 셀만 갱신
-        const { scheme, error } = convertUrl(
-          state[stateKey][idx].title,
-          state[stateKey][idx].url
-        );
+        const idx = parseInt(input.dataset.index, 10);
+        state[stateKey][idx][input.dataset.field] = input.value;
+        const { scheme, error } = convertUrl(state[stateKey][idx].title, state[stateKey][idx].url);
         const schemeCell = input.closest('tr').querySelector('td:nth-child(3)');
         schemeCell.innerHTML = error
           ? `<span class="scheme-cell error">변환 불가: ${escHtml(error)}</span>`
@@ -400,7 +557,6 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
   addBtn.addEventListener('click', () => {
     state[stateKey].push({ title: '', url: '' });
     renderRows();
-    // 마지막 행 title input에 포커스
     const inputs = tbody.querySelectorAll('input[data-field="title"]');
     if (inputs.length > 0) inputs[inputs.length - 1].focus();
   });
@@ -411,13 +567,11 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
       showAlert(alertDiv, '다운로드할 데이터가 없습니다. 행을 추가하고 입력해주세요.', 'warning');
       return;
     }
-
     const header = ['제목', '스킴'];
     const dataRows = rows.map(row => {
       const { scheme, error } = convertUrl(row.title, row.url);
       return [row.title, error ? `[변환 불가] ${error}` : scheme];
     });
-
     const wb = XLSX.utils.book_new();
     const wsData = [header, ...dataRows];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -427,16 +581,20 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
     clearAlert(alertDiv);
   });
 
-  // 초기 렌더
   renderRows();
 }
 
 // ── 초기화 ────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // 연도 기본값: 현재 연도
-  document.getElementById('yearInput').value = new Date().getFullYear();
 
-  // ① 탭 전환 (activeBtn/Panel 추적으로 최적화)
+  // 캘린더 초기화 (KST 오늘)
+  const kst = getKSTToday();
+  state.selectedDate = { year: kst.year, month: kst.month, day: kst.day };
+  state.calViewYear  = kst.year;
+  state.calViewMonth = kst.month;
+  renderCalendar();
+
+  // ① 탭 전환
   const tabBtns = [...document.querySelectorAll('.tab-btn')];
   let activeBtn   = tabBtns.find(b => b.classList.contains('active'));
   let activePanel = document.querySelector('.tab-panel.active');
@@ -454,7 +612,36 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ② Metabase xlsx 업로드 — 다중 파일 지원, 결과 합산
+  // ② 편성표 → LB_ 변환
+  document.getElementById('btnConvertSchedule').addEventListener('click', () => {
+    clearAlert('lbAlert');
+
+    if (!state.selectedDate) {
+      showAlert('lbAlert', '날짜를 먼저 선택해주세요.', 'warning');
+      return;
+    }
+
+    const text = document.getElementById('scheduleText').value;
+    if (!text.trim()) {
+      showAlert('lbAlert', '편성표 텍스트를 붙여넣어 주세요.', 'warning');
+      return;
+    }
+
+    const lines = parseScheduleGrid(text, state.selectedDate);
+    if (!lines) {
+      showAlert('lbAlert', '편성표 형식을 인식하지 못했습니다. 헤더(2~6)와 시간열이 포함되었는지 확인해주세요.', 'error');
+      return;
+    }
+    if (lines.length === 0) {
+      showAlert('lbAlert', '방송 데이터가 없습니다. (모든 셀이 비어있음)', 'warning');
+      return;
+    }
+
+    document.getElementById('lbText').value = lines.join('\n');
+    showAlert('lbAlert', `${lines.length}건의 LB_ 텍스트를 생성했습니다. 확인 후 [파싱 & 미리보기]를 클릭하세요.`, 'info');
+  });
+
+  // ③ Metabase xlsx 업로드
   document.getElementById('metabaseFile').addEventListener('change', function (e) {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -466,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.userMap = {};
     state.metabaseLoaded = false;
 
-    const results = [];   // { name, count, error }
+    const results = [];
     let pending = files.length;
 
     files.forEach(file => {
@@ -482,8 +669,8 @@ document.addEventListener('DOMContentLoaded', () => {
             results.push({ name: file.name, count: 0, error: '데이터 없음' });
           } else {
             const firstKeys = Object.keys(rows[0]);
-            const nameKey   = firstKeys.find(k => k.toUpperCase() === 'USER_NAME');
-            const idKey     = firstKeys.find(k => k.toUpperCase() === 'USER_ID');
+            const nameKey = firstKeys.find(k => k.toUpperCase() === 'USER_NAME');
+            const idKey   = firstKeys.find(k => k.toUpperCase() === 'USER_ID');
 
             if (!nameKey || !idKey) {
               results.push({ name: file.name, count: 0, error: 'USER_NAME/USER_ID 컬럼 없음' });
@@ -504,7 +691,6 @@ document.addEventListener('DOMContentLoaded', () => {
         pending--;
         if (pending > 0) return;
 
-        // 모든 파일 처리 완료
         const totalCount = Object.keys(state.userMap).length;
         const hasAnyError = results.some(r => r.error);
 
@@ -519,8 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : `<div class="file-item file-item--ok">✓ ${escHtml(r.name)} (${r.count}명)</div>`
         ).join('');
 
-        fileNameEl.innerHTML = listHtml
-          + `<div class="file-total">총 ${totalCount}명 로드됨</div>`;
+        fileNameEl.innerHTML = listHtml + `<div class="file-total">총 ${totalCount}명 로드됨</div>`;
         fileNameEl.classList.add('loaded');
 
         if (hasAnyError && totalCount === 0) {
@@ -531,7 +716,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ③ 파싱 & 미리보기
+  // ④ 파싱 & 미리보기
   document.getElementById('btnParse').addEventListener('click', () => {
     clearAlert('lbAlert');
 
@@ -539,8 +724,12 @@ document.addEventListener('DOMContentLoaded', () => {
       showAlert('lbAlert', 'Metabase 파일을 먼저 업로드해주세요.', 'warning');
       return;
     }
+    if (!state.selectedDate) {
+      showAlert('lbAlert', '날짜를 먼저 선택해주세요.', 'warning');
+      return;
+    }
 
-    const year    = parseInt(document.getElementById('yearInput').value, 10) || new Date().getFullYear();
+    const year    = state.selectedDate.year;
     const rawText = document.getElementById('lbText').value;
     const lines   = rawText.split('\n').filter(l => l.trim() !== '');
 
@@ -549,12 +738,20 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    state.parsedRows = applyConsecutiveDedup(lines.map(line => parseLB(line, year)));
+    const deduped = applyConsecutiveDedup(lines.map(line => parseLB(line, year)));
+
+    // templateIndex 부여 (카드 번호 계산용)
+    let idx = 0;
+    deduped.forEach(row => {
+      row.templateIndex = row.parseError ? null : idx++;
+    });
+
+    state.parsedRows = deduped;
     state.mainTitles = {};
     renderLBTable();
   });
 
-  // ④ 라이브 템플릿 다운로드
+  // ⑤ 라이브 템플릿 다운로드
   document.getElementById('btnDownloadLive').addEventListener('click', () => {
     if (state.parsedRows.length === 0) {
       showAlert('lbAlert', '먼저 [파싱 & 미리보기]를 실행해주세요.', 'warning');
@@ -577,38 +774,33 @@ document.addEventListener('DOMContentLoaded', () => {
     XLSX.writeFile(wb, '라이브 템플릿.xlsx');
   });
 
-  // ⑤ 라이브배너등록 템플릿 — 위치별(LB_2~LB_6) 다운로드
+  // ⑥ 라이브배너등록 템플릿 — 위치별 다운로드
   const LB_POSITIONS = ['2', '3', '4', '5', '6'];
-  const LB_HEADER = [
-    '콘텐츠 카드 번호',
-    '날짜 (yyyy.mm.dd)',
-    '방송 시작 시간 (hh:mm:ss)',
-    '방송 종료 시간 (hh:mm:ss)',
-  ];
 
   LB_POSITIONS.forEach(pos => {
     document.querySelector(`[data-lb-pos="${pos}"]`).addEventListener('click', () => {
-      if (state.parsedRows.length === 0) {
-        showAlert('lbAlert', '먼저 [파싱 & 미리보기]를 실행해주세요.', 'warning');
-        return;
-      }
-      const filteredRows = state.parsedRows.filter(row => !row.parseError && row.position === pos);
-      const dataRows = filteredRows.map(row => {
-        const endTime = row.runEndTime ? `'${row.runEndTime}` : '';
-        return ['', `'${row.dateFull}`, `'${row.timeFormatted}`, endTime];
-      });
+      downloadLBTemplate(pos);
+    });
+  });
 
-      if (dataRows.length === 0) {
-        showAlert('lbAlert', `LB_${pos} 위치의 방송이 없습니다.`, 'warning');
-        return;
-      }
-      const wb = XLSX.utils.book_new();
-      const wsData = [LB_HEADER, ...dataRows];
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      forceStringCells(ws, wsData);
-      XLSX.utils.book_append_sheet(wb, ws, `LB_${pos}`);
-      XLSX.writeFile(wb, `라이브배너등록 템플릿_LB${pos}.xlsx`);
-      clearAlert('lbAlert');
+  // ⑦ 전체 다운로드 (LB_2~6)
+  document.getElementById('btnDownloadAllLB').addEventListener('click', () => {
+    if (state.parsedRows.length === 0) {
+      showAlert('lbAlert', '먼저 [파싱 & 미리보기]를 실행해주세요.', 'warning');
+      return;
+    }
+
+    const availablePos = LB_POSITIONS.filter(pos =>
+      state.parsedRows.some(r => !r.parseError && r.position === pos)
+    );
+
+    if (availablePos.length === 0) {
+      showAlert('lbAlert', '다운로드할 LB 위치 데이터가 없습니다.', 'warning');
+      return;
+    }
+
+    availablePos.forEach((pos, i) => {
+      setTimeout(() => downloadLBTemplate(pos), i * 400);
     });
   });
 
