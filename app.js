@@ -18,7 +18,18 @@ const URL_RULES = [
   { prefix: '쇼츠_', label: '쇼츠',         example: 'gripshow://shorts/{ID}', note: 'URL 없이 제목 마지막 _ 세그먼트에서 ID 추출' },
 ];
 
+// ── 편성표 시간 슬롯 (0:00, 0:30, 7:00~23:30) ─────────────
+const TIME_SLOTS = (() => {
+  const s = ['0:00', '0:30'];
+  for (let h = 7; h <= 23; h++) s.push(`${h}:00`, `${h}:30`);
+  return s;
+})();
+
+const LB_COLS = ['2', '3', '4', '5', '6'];
+
 // ── 전역 상태 ──────────────────────────────────────────────
+let scheduleGridCtrl = null;
+
 const state = {
   // 날짜 선택
   selectedDate: null,   // { year, month(0-indexed), day }
@@ -156,69 +167,115 @@ function renderCalendar() {
   });
 }
 
-// ── 편성표 파싱 ────────────────────────────────────────────
-function parseScheduleGrid(text, selectedDate) {
-  // Excel 복사 시 \r\n 또는 \r 줄바꿈 정규화
-  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = normalized.split('\n').map(l => l.trimEnd()).filter(l => l.trim() !== '');
-  if (lines.length === 0) return null;
+// ── 편성표 그리드 컴포넌트 ────────────────────────────────
+function initScheduleGrid() {
+  const container = document.getElementById('scheduleGrid');
+  // 36행 × 5열 (LB_2~6) 상태
+  const gridData = Array.from({ length: TIME_SLOTS.length }, () => Array(5).fill(''));
 
-  const VALID_POS = new Set(['2', '3', '4', '5', '6']);
-  let posMap = {};   // { colIndex(number): posString }
-  let dataStartIdx = 0;
-
-  // 헤더 행 탐색 (앞 10줄 이내)
-  for (let i = 0; i < Math.min(lines.length, 10); i++) {
-    const cells = lines[i].split('\t');
-    const found = [];
-    cells.forEach((c, idx) => {
-      if (VALID_POS.has(c.trim())) found.push({ idx, pos: c.trim() });
-    });
-    if (found.length >= 2) {
-      found.forEach(({ idx, pos }) => { posMap[idx] = pos; });
-      dataStartIdx = i + 1;
-      break;
-    }
-  }
-
-  // 헤더 없이 붙여넣은 경우: 열 1~5 = LB_2~6 고정 매핑
-  if (Object.keys(posMap).length === 0) {
-    posMap = { 1: '2', 2: '3', 3: '4', 4: '5', 5: '6' };
-    dataStartIdx = 0;
-  }
-
-  const dateStr = `${selectedDate.month + 1}/${selectedDate.day}`;
-  const lbLines = [];
-
-  for (let i = dataStartIdx; i < lines.length; i++) {
-    const cells = lines[i].split('\t');
-    const timeRaw = (cells[0] ?? '').trim();
-    if (!/^\d{1,2}:\d{2}$/.test(timeRaw)) continue;
-
-    const [hStr, mStr] = timeRaw.split(':');
-    const time = `${pad2(parseInt(hStr, 10))}:${pad2(parseInt(mStr, 10))}`;
-
-    Object.entries(posMap).forEach(([colIdxStr, pos]) => {
-      const gripper = (cells[parseInt(colIdxStr)] ?? '').trim();
-      if (gripper) {
-        lbLines.push(`LB_${pos}_${dateStr} ${time} ${gripper}`);
-      }
-    });
-  }
-
-  // 시간 오름차순, 동일 시간 내 위치 오름차순 정렬
-  lbLines.sort((a, b) => {
-    const parse = s => {
-      const m = s.match(/^LB_(\d+)_\S+\s+(\d+:\d+)/);
-      return m ? { pos: +m[1], time: m[2] } : { pos: 9, time: '99:99' };
-    };
-    const pa = parse(a), pb = parse(b);
-    if (pa.time < pb.time) return -1;
-    if (pa.time > pb.time) return 1;
-    return pa.pos - pb.pos;
+  // 시간 → 행 인덱스 맵 (정시 / 제로패딩 둘 다 지원)
+  const timeToIdx = {};
+  TIME_SLOTS.forEach((t, i) => {
+    timeToIdx[t] = i;
+    const [h, m] = t.split(':');
+    timeToIdx[`${pad2(+h)}:${m}`] = i;
   });
 
-  return lbLines;
+  function renderGrid() {
+    let html = `
+      <div class="grid-scroll-wrap">
+      <table class="schedule-grid-table">
+        <thead>
+          <tr>
+            <th class="grid-th-time">시간</th>
+            ${LB_COLS.map(p => `<th class="grid-th-lb">LB_${p}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    TIME_SLOTS.forEach((time, r) => {
+      html += `<tr>
+        <td class="grid-td-time">${time}</td>
+        ${LB_COLS.map((_, c) => `
+          <td class="grid-td-cell">
+            <input type="text" class="grid-cell-input"
+              data-r="${r}" data-c="${c}"
+              value="${escHtml(gridData[r][c])}"
+              autocomplete="off" spellcheck="false">
+          </td>
+        `).join('')}
+      </tr>`;
+    });
+
+    html += `</tbody></table></div>`;
+    container.innerHTML = html;
+
+    container.querySelectorAll('.grid-cell-input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        gridData[+inp.dataset.r][+inp.dataset.c] = inp.value;
+      });
+    });
+  }
+
+  // 붙여넣기 핸들러 (컨테이너에 한 번만 등록)
+  container.addEventListener('paste', e => {
+    e.preventDefault();
+    const raw = (e.clipboardData || window.clipboardData).getData('text');
+    const text = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    let rows = text.split('\n').filter(l => l.trim() !== '');
+    if (rows.length === 0) return;
+
+    // 헤더 행 감지 & 제거 (2,3,4,5,6 포함 행)
+    const firstCells = rows[0].split('\t').map(c => c.trim());
+    const posSet = new Set(['2','3','4','5','6']);
+    if (firstCells.filter(c => posSet.has(c)).length >= 2) {
+      rows = rows.slice(1);
+    }
+    if (rows.length === 0) return;
+
+    // 시간열 포함 여부: 첫 행 첫 셀이 HH:MM 형식인지 확인
+    const hasTimeCol = /^\d{1,2}:\d{2}$/.test(rows[0].split('\t')[0].trim());
+
+    if (hasTimeCol) {
+      // 시간열 기준으로 해당 행 찾아서 채우기
+      rows.forEach(line => {
+        const cells = line.split('\t');
+        const timeRaw = cells[0].trim();
+        if (!/^\d{1,2}:\d{2}$/.test(timeRaw)) return;
+        const rowIdx = timeToIdx[timeRaw];
+        if (rowIdx === undefined) return;
+        cells.slice(1).forEach((val, c) => {
+          if (c < 5) gridData[rowIdx][c] = val.trim();
+        });
+      });
+    } else {
+      // 시간열 없음: 포커스된 셀 위치부터 순서대로 채우기
+      const target = e.target.closest('.grid-cell-input');
+      const startRow = target ? +target.dataset.r : 0;
+      const startCol = target ? +target.dataset.c : 0;
+      rows.forEach((line, r) => {
+        const targetRow = startRow + r;
+        if (targetRow >= TIME_SLOTS.length) return;
+        line.split('\t').forEach((val, c) => {
+          const tc = startCol + c;
+          if (tc < 5) gridData[targetRow][tc] = val.trim();
+        });
+      });
+    }
+
+    renderGrid();
+  });
+
+  renderGrid();
+
+  return {
+    getGridData: () => gridData,
+    clearGrid: () => {
+      gridData.forEach(row => row.fill(''));
+      renderGrid();
+    },
+  };
 }
 
 // ── LB_ 파싱 ──────────────────────────────────────────────
@@ -594,6 +651,9 @@ function initBannerTab(tabId, stateKey, downloadBtnId, fileName, sheetName) {
 // ── 초기화 ────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
+  // 편성표 그리드 초기화
+  scheduleGridCtrl = initScheduleGrid();
+
   // 캘린더 초기화 (KST 오늘)
   const kst = getKSTToday();
   state.selectedDate = { year: kst.year, month: kst.month, day: kst.day };
@@ -619,7 +679,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ② 편성표 → LB_ 변환
+  // ② 그리드 초기화
+  document.getElementById('btnClearGrid').addEventListener('click', () => {
+    scheduleGridCtrl.clearGrid();
+  });
+
+  // ③ 편성표 그리드 → LB_ 변환
   document.getElementById('btnConvertSchedule').addEventListener('click', () => {
     clearAlert('lbAlert');
 
@@ -628,27 +693,29 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const text = document.getElementById('scheduleText').value;
-    if (!text.trim()) {
-      showAlert('lbAlert', '편성표 텍스트를 붙여넣어 주세요.', 'warning');
+    const gridData = scheduleGridCtrl.getGridData();
+    const dateStr = `${state.selectedDate.month + 1}/${state.selectedDate.day}`;
+    const lbLines = [];
+
+    TIME_SLOTS.forEach((timeRaw, r) => {
+      const [h, m] = timeRaw.split(':');
+      const time = `${pad2(+h)}:${pad2(+m)}`;
+      LB_COLS.forEach((pos, c) => {
+        const gripper = gridData[r][c].trim();
+        if (gripper) lbLines.push(`LB_${pos}_${dateStr} ${time} ${gripper}`);
+      });
+    });
+
+    if (lbLines.length === 0) {
+      showAlert('lbAlert', '그리드에 방송 데이터가 없습니다. 붙여넣기 또는 직접 입력 후 다시 시도하세요.', 'warning');
       return;
     }
 
-    const lines = parseScheduleGrid(text, state.selectedDate);
-    if (!lines) {
-      showAlert('lbAlert', '편성표 형식을 인식하지 못했습니다. 헤더(2~6)와 시간열이 포함되었는지 확인해주세요.', 'error');
-      return;
-    }
-    if (lines.length === 0) {
-      showAlert('lbAlert', '방송 데이터가 없습니다. (모든 셀이 비어있음)', 'warning');
-      return;
-    }
-
-    document.getElementById('lbText').value = lines.join('\n');
-    showAlert('lbAlert', `${lines.length}건의 LB_ 텍스트를 생성했습니다. 확인 후 [파싱 & 미리보기]를 클릭하세요.`, 'info');
+    document.getElementById('lbText').value = lbLines.join('\n');
+    showAlert('lbAlert', `${lbLines.length}건의 LB_ 텍스트를 생성했습니다. 확인 후 [파싱 & 미리보기]를 클릭하세요.`, 'info');
   });
 
-  // ③ Metabase xlsx 업로드
+  // ④ Metabase xlsx 업로드
   document.getElementById('metabaseFile').addEventListener('change', function (e) {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;

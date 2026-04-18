@@ -35,13 +35,14 @@
         <div id="calContainer"></div>
       </div>
 
-      <!-- 편성표 붙여넣기 -->
+      <!-- 편성표 그리드 입력 -->
       <div class="form-group">
-        <label for="scheduleText">편성표 붙여넣기 <span class="hint-badge-opt">선택</span></label>
-        <textarea
-          id="scheduleText"
-          placeholder="Excel 편성표(시간열 + 2~6열)를 복사해서 붙여넣으세요&#10;&#9;2&#9;3&#9;4&#9;5&#9;6&#10;16:00&#9;마녀옷장&#9;&#9;&#9;&#9;&#10;16:30&#9;마녀옷장&#9;사또벨라&#9;&#9;&#9;"
-        ></textarea>
+        <label>편성표 그리드 <span class="hint-badge-opt">선택</span></label>
+        <p class="hint-text" style="margin-bottom:8px;">
+          Google Sheets에서 <strong>2~6열 전체를 복사</strong>한 뒤, 그리드 아무 셀이나 클릭하고 붙여넣으세요.<br>
+          시간열 포함 여부와 관계없이 자동으로 인식합니다.
+        </p>
+        <div id="scheduleGrid"></div>
         <div class="convert-bar">
           <button class="btn btn-secondary btn-sm" id="btnConvertSchedule">
             <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
@@ -49,6 +50,7 @@
             </svg>
             LB_ 텍스트 변환
           </button>
+          <button class="btn btn-secondary btn-sm" id="btnClearGrid">그리드 초기화</button>
           <span class="hint-text" style="margin:0;">변환하면 아래 LB_ 텍스트가 자동으로 채워집니다.</span>
         </div>
       </div>
