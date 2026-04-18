@@ -807,13 +807,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnParse').addEventListener('click', () => {
     clearAlert('lbAlert');
 
-    if (!state.metabaseLoaded) {
-      showAlert('lbAlert', 'Metabase 파일을 먼저 업로드해주세요.', 'warning');
-      return;
-    }
     if (!state.selectedDate) {
       showAlert('lbAlert', '날짜를 먼저 선택해주세요.', 'warning');
       return;
+    }
+    if (!state.metabaseLoaded) {
+      showAlert('lbAlert', '⚠️ Metabase 파일 없이 미리보기합니다. 사용자 코드(그리퍼 코드)는 비어있습니다.', 'warning');
     }
 
     const year    = state.selectedDate.year;
